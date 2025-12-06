@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Epidural Tracker">
+  <meta name="theme-color" content="#1e3a5f">
+  <title>Epidural Infusion Tracker</title>
+  
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💉</text></svg>">
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    input[type="number"] { -moz-appearance: textfield; }
+    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .animate-pulse { animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script>
+    const { useState, useEffect } = React;
+
+    function EpiduralTracker() {
+      const [patients, setPatients] = useState(() => {
+        try {
+          const saved = localStorage.getItem('epiduralPatients_v3');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            return parsed.map(p => ({ ...p, checkedAt: new Date(p.checkedAt) }));
+          }
+        } catch (e) {}
+        return [];
+      });
+      const [showForm, setShowForm] = useState(false);
+      const [currentTime, setCurrentTime] = useState(new Date());
+      
+      const getCurrentTimeString = () => {
+        const now = new Date();
+        return now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+      };
+      
+      const getDefaultNewPatient = () => ({
+        room: '', patientId: '', volumeRemaining: 150, rate: 15, bolusSize: 10, expectedBoluses: 0, timeChecked: getCurrentTimeString()
+      });
+      
+      const [newPatient, setNewPatient] = useState(getDefaultNewPatient());
+
+      useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 30000);
+        return () => clearInterval(timer);
+      }, []);
+
+      useEffect(() => {
+        try {
+          localStorage.setItem('epiduralPatients_v3', JSON.stringify(patients));
+        } catch (e) {}
+      }, [patients]);
+      
+      const parseTimeToDate = (timeStr) => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const date = new Date();
+        date.setHours(hours, minutes, 0, 0);
+        return date;
+      };
+
+      const calculateTimes = (patient) => {
+        const effectiveVolume = patient.volumeRemaining - (patient.expectedBoluses * patient.bolusSize);
+        const hoursLeft = patient.rate > 0 ? effectiveVolume / patient.rate : 0;
+        const emptyTime = new Date(patient.checkedAt.getTime() + hoursLeft * 60 * 60 * 1000);
+        const pageBy = new Date(emptyTime.getTime() - 30 * 60 * 1000);
+        const minutesUntilPage = (pageBy - currentTime) / 60000;
+        return { hoursLeft, emptyTime, pageBy, minutesUntilPage, effectiveVolume };
+      };
+
+      const formatTime = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      const getUrgencyColor = (minutesUntilPage) => {
+        if (minutesUntilPage < 0) return 'bg-red-100 border-red-500';
+        if (minutesUntilPage < 30) return 'bg-orange-100 border-orange-500';
+        if (minutesUntilPage < 60) return 'bg-yellow-100 border-yellow-500';
+        return 'bg-green-100 border-green-500';
+      };
+
+      const addPatient = () => {
+        if (!newPatient.room) return;
+        const checkedAt = parseTimeToDate(newPatient.timeChecked);
+        setPatients([...patients, { ...newPatient, id: Date.now(), checkedAt }]);
+        setNewPatient(getDefaultNewPatient());
+        setShowForm(false);
+      };
+
+      const removePatient = (id) => setPatients(patients.filter(p => p.id !== id));
+
+      const updatePatient = (id, field, value) => {
+        setPatients(patients.map(p => p.id === id ? { ...p, [field]: parseFloat(value) || 0 } : p));
+      };
+      
+      const updatePatientTime = (id, timeStr) => {
+        const checkedAt = parseTimeToDate(timeStr);
+        setPatients(patients.map(p => p.id === id ? { ...p, checkedAt } : p));
+      };
+      
+      const setPatientTimeToNow = (id) => {
+        const checkedAt = new Date();
+        setPatients(patients.map(p => p.id === id ? { ...p, checkedAt } : p));
+      };
+
+      const clearAll = () => { if (confirm('Clear all patients?')) setPatients([]); };
+
+      const sortedPatients = [...patients].sort((a, b) => calculateTimes(a).minutesUntilPage - calculateTimes(b).minutesUntilPage);
+
+      const getTimeInputValue = (date) => {
+        return date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');
+      };
+
+      return React.createElement('div', { className: 'min-h-screen bg-slate-50' },
+        React.createElement('div', { className: 'bg-blue-900 text-white p-4 sticky top-0 z-10 shadow-lg' },
+          React.createElement('h1', { className: 'text-xl font-bold text-center' }, '💉 Epidural Tracker'),
+          React.createElement('p', { className: 'text-center text-blue-200 text-sm mt-1' }, 'Now: ' + formatTime(currentTime)),
+          patients.length > 0 && React.createElement('button', {
+            onClick: clearAll,
+            className: 'absolute right-2 top-2 text-blue-300 text-xs underline'
+          }, 'Clear All')
+        ),
+
+        React.createElement('div', { className: 'p-4 max-w-lg mx-auto pb-24' },
+          patients.length === 0 && !showForm && React.createElement('div', { className: 'bg-white p-8 text-center rounded-xl shadow mt-4' },
+            React.createElement('div', { className: 'text-6xl mb-4' }, '💉'),
+            React.createElement('p', { className: 'text-gray-600 mb-4' }, 'No patients being tracked'),
+            React.createElement('button', {
+              onClick: () => { setNewPatient(getDefaultNewPatient()); setShowForm(true); },
+              className: 'bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold active:bg-blue-700'
+            }, '+ Add Patient')
+          ),
+
+          showForm && React.createElement('div', { className: 'bg-white p-4 rounded-xl shadow mt-4' },
+            React.createElement('h2', { className: 'font-bold text-lg mb-3 text-gray-800' }, 'Add New Patient'),
+            React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
+              React.createElement('div', null,
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Room #'),
+                React.createElement('input', {
+                  type: 'text', value: newPatient.room, inputMode: 'numeric',
+                  onChange: (e) => setNewPatient({...newPatient, room: e.target.value}),
+                  className: 'w-full border-2 rounded-lg p-3 text-lg', placeholder: '302'
+                })
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Patient ID'),
+                React.createElement('input', {
+                  type: 'text', value: newPatient.patientId,
+                  onChange: (e) => setNewPatient({...newPatient, patientId: e.target.value}),
+                  className: 'w-full border-2 rounded-lg p-3 text-lg', placeholder: 'Optional'
+                })
+              ),
+              React.createElement('div', { className: 'col-span-2' },
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, '⏰ Time Checked'),
+                React.createElement('div', { className: 'flex gap-2' },
+                  React.createElement('input', {
+                    type: 'time', value: newPatient.timeChecked,
+                    onChange: (e) => setNewPatient({...newPatient, timeChecked: e.target.value}),
+                    className: 'flex-1 border-2 border-blue-400 bg-blue-50 rounded-lg p-3 text-lg font-bold text-center'
+                  }),
+                  React.createElement('button', {
+                    type: 'button',
+                    onClick: () => setNewPatient({...newPatient, timeChecked: getCurrentTimeString()}),
+                    className: 'bg-green-500 text-white px-4 rounded-lg font-bold text-sm active:bg-green-600'
+                  }, 'NOW')
+                )
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Volume Remaining (mL)'),
+                React.createElement('input', {
+                  type: 'number', value: newPatient.volumeRemaining, inputMode: 'numeric',
+                  onChange: (e) => setNewPatient({...newPatient, volumeRemaining: parseFloat(e.target.value) || 0}),
+                  className: 'w-full border-2 rounded-lg p-3 text-lg'
+                })
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Rate (mL/hr)'),
+                React.createElement('input', {
+                  type: 'number', value: newPatient.rate, inputMode: 'numeric',
+                  onChange: (e) => setNewPatient({...newPatient, rate: parseFloat(e.target.value) || 0}),
+                  className: 'w-full border-2 rounded-lg p-3 text-lg'
+                })
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Expected Boluses'),
+                React.createElement('input', {
+                  type: 'number', value: newPatient.expectedBoluses, inputMode: 'numeric',
+                  onChange: (e) => setNewPatient({...newPatient, expectedBoluses: parseFloat(e.target.value) || 0}),
+                  className: 'w-full border-2 rounded-lg p-3 text-lg'
+                })
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'Bolus Size (mL)'),
+                React.createElement('input', {
+                  type: 'number', value: newPatient.bolusSize, inputMode: 'numeric',
+                  onChange: (e) => setNewPatient({...newPatient, bolusSize: parseFloat(e.target.value) || 0}),
+                  className: 'w-full border-2 rounded-lg p-3 text-lg'
+                })
+              )
+            ),
+            React.createElement('div', { className: 'flex gap-2 mt-4' },
+              React.createElement('button', {
+                onClick: addPatient,
+                className: 'flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold active:bg-green-700'
+              }, 'Add Patient'),
+              React.createElement('button', {
+                onClick: () => setShowForm(false),
+                className: 'flex-1 bg-gray-300 text-gray-700 py-3 rounded-lg font-semibold active:bg-gray-400'
+              }, 'Cancel')
+            )
+          ),
+
+          sortedPatients.map((patient) => {
+            const calc = calculateTimes(patient);
+            return React.createElement('div', {
+              key: patient.id,
+              className: 'border-l-4 bg-white rounded-xl shadow mt-4 p-4 ' + getUrgencyColor(calc.minutesUntilPage)
+            },
+              React.createElement('div', { className: 'flex justify-between items-start mb-2' },
+                React.createElement('div', null,
+                  React.createElement('span', { className: 'text-2xl font-bold text-gray-800' }, 'Room ' + patient.room),
+                  patient.patientId && React.createElement('span', { className: 'text-gray-500 ml-2' }, '(' + patient.patientId + ')')
+                ),
+                React.createElement('button', {
+                  onClick: () => removePatient(patient.id),
+                  className: 'text-red-500 text-2xl font-bold w-8 h-8'
+                }, '×')
+              ),
+
+              React.createElement('div', { className: 'grid grid-cols-2 gap-3 mb-3' },
+                React.createElement('div', { className: 'bg-white/70 rounded-lg p-3 text-center' },
+                  React.createElement('div', { className: 'text-xs text-gray-600 uppercase' }, 'Empty At'),
+                  React.createElement('div', { className: 'text-xl font-bold text-red-600' }, formatTime(calc.emptyTime))
+                ),
+                React.createElement('div', { className: 'bg-white/70 rounded-lg p-3 text-center' },
+                  React.createElement('div', { className: 'text-xs text-gray-600 uppercase' }, 'Page By'),
+                  React.createElement('div', { className: 'text-xl font-bold text-orange-600' }, formatTime(calc.pageBy))
+                )
+              ),
+
+              React.createElement('div', { className: 'text-center mb-3' },
+                calc.minutesUntilPage < 0
+                  ? React.createElement('span', { className: 'bg-red-600 text-white px-4 py-2 rounded-full font-bold animate-pulse' }, '⚠️ OVERDUE - PAGE NOW')
+                  : calc.minutesUntilPage < 30
+                    ? React.createElement('span', { className: 'bg-orange-500 text-white px-4 py-2 rounded-full font-bold' }, '⏰ Page in ' + Math.round(calc.minutesUntilPage) + ' min')
+                    : React.createElement('span', { className: 'text-gray-600' }, calc.hoursLeft.toFixed(1) + ' hours remaining')
+              ),
+
+              React.createElement('div', { className: 'grid grid-cols-3 gap-2 text-sm mb-2' },
+                React.createElement('div', { className: 'bg-white/50 rounded p-2' },
+                  React.createElement('div', { className: 'text-xs text-gray-500' }, 'Volume'),
+                  React.createElement('input', {
+                    type: 'number', value: patient.volumeRemaining, inputMode: 'numeric',
+                    onChange: (e) => updatePatient(patient.id, 'volumeRemaining', e.target.value),
+                    className: 'w-full border rounded px-1 text-center font-bold'
+                  })
+                ),
+                React.createElement('div', { className: 'bg-white/50 rounded p-2' },
+                  React.createElement('div', { className: 'text-xs text-gray-500' }, 'Rate'),
+                  React.createElement('input', {
+                    type: 'number', value: patient.rate, inputMode: 'numeric',
+                    onChange: (e) => updatePatient(patient.id, 'rate', e.target.value),
+                    className: 'w-full border rounded px-1 text-center font-bold'
+                  })
+                ),
+                React.createElement('div', { className: 'bg-white/50 rounded p-2' },
+                  React.createElement('div', { className: 'text-xs text-gray-500' }, 'Boluses'),
+                  React.createElement('input', {
+                    type: 'number', value: patient.expectedBoluses, inputMode: 'numeric',
+                    onChange: (e) => updatePatient(patient.id, 'expectedBoluses', e.target.value),
+                    className: 'w-full border rounded px-1 text-center font-bold'
+                  })
+                )
+              ),
+              
+              React.createElement('div', { className: 'bg-blue-50 rounded p-2 flex items-center justify-between' },
+                React.createElement('span', { className: 'text-xs text-blue-700 font-medium' }, '⏰ Checked:'),
+                React.createElement('div', { className: 'flex items-center gap-2' },
+                  React.createElement('input', {
+                    type: 'time', value: getTimeInputValue(patient.checkedAt),
+                    onChange: (e) => updatePatientTime(patient.id, e.target.value),
+                    className: 'border border-blue-300 rounded px-2 py-1 text-center font-bold bg-white'
+                  }),
+                  React.createElement('button', {
+                    onClick: () => setPatientTimeToNow(patient.id),
+                    className: 'bg-green-500 text-white px-2 py-1 rounded text-xs font-bold active:bg-green-600'
+                  }, 'NOW')
+                )
+              )
+            );
+          }),
+
+          patients.length > 0 && !showForm && React.createElement('button', {
+            onClick: () => { setNewPatient(getDefaultNewPatient()); setShowForm(true); },
+            className: 'w-full mt-4 bg-blue-600 text-white py-4 rounded-xl font-semibold active:bg-blue-700 shadow'
+          }, '+ Add Patient'),
+
+          React.createElement('div', { className: 'mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4' },
+            React.createElement('h3', { className: 'font-bold text-blue-900 mb-2' }, 'Quick Reference'),
+            React.createElement('div', { className: 'text-sm text-blue-800 space-y-1' },
+              React.createElement('p', null, '• 150 mL @ 15 mL/hr = 10 hours'),
+              React.createElement('p', null, '• Each bolus (10 mL) = ~40 min less'),
+              React.createElement('p', null, '• Sorted by urgency (most urgent first)')
+            )
+          ),
+
+          React.createElement('div', { className: 'mt-3 text-center text-xs text-gray-500' },
+            '🟢 >1hr | 🟡 30-60min | 🟠 <30min | 🔴 Overdue'
+          )
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(EpiduralTracker));
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        const swCode = "const CACHE='epidural-v3';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE)));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));";
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
