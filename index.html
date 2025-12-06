@@ -33,7 +33,7 @@
     function EpiduralTracker() {
       const [patients, setPatients] = useState(() => {
         try {
-          const saved = localStorage.getItem('epiduralPatients_v5');
+          const saved = localStorage.getItem('epiduralPatients_v6');
           if (saved) {
             const parsed = JSON.parse(saved);
             return parsed.map(p => ({ ...p, checkedAt: new Date(p.checkedAt) }));
@@ -67,7 +67,7 @@
 
       useEffect(() => {
         try {
-          localStorage.setItem('epiduralPatients_v5', JSON.stringify(patients));
+          localStorage.setItem('epiduralPatients_v6', JSON.stringify(patients));
         } catch (e) {}
       }, [patients]);
 
@@ -82,18 +82,11 @@
 
       const formatTime = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
       
+      // Always show date + time clearly
       const formatDateTime = (date) => {
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        
-        let dayLabel = '';
-        if (dateOnly.getTime() === today.getTime()) dayLabel = 'Today ';
-        else if (dateOnly.getTime() === tomorrow.getTime()) dayLabel = 'Tmrw ';
-        else dayLabel = (date.getMonth()+1) + '/' + date.getDate() + ' ';
-        
-        return dayLabel + formatTime(date);
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        return month + '/' + day + '/' + date.getFullYear() + ' ' + formatTime(date);
       };
 
       const getUrgencyColor = (minutesUntilPage) => {
@@ -129,11 +122,18 @@
       const clearAll = () => { if (confirm('Clear all patients?')) setPatients([]); };
 
       const sortedPatients = [...patients].sort((a, b) => calculateTimes(a).minutesUntilPage - calculateTimes(b).minutesUntilPage);
+      
+      // Format current date/time for header
+      const formatCurrentDateTime = () => {
+        const m = currentTime.getMonth() + 1;
+        const d = currentTime.getDate();
+        return m + '/' + d + '/' + currentTime.getFullYear() + ' ' + formatTime(currentTime);
+      };
 
       return React.createElement('div', { className: 'min-h-screen bg-slate-50' },
         React.createElement('div', { className: 'bg-blue-900 text-white p-4 sticky top-0 z-10 shadow-lg' },
           React.createElement('h1', { className: 'text-xl font-bold text-center' }, '💉 Epidural Tracker'),
-          React.createElement('p', { className: 'text-center text-blue-200 text-sm mt-1' }, 'Now: ' + formatTime(currentTime)),
+          React.createElement('p', { className: 'text-center text-blue-200 text-sm mt-1' }, 'Now: ' + formatCurrentDateTime()),
           patients.length > 0 && React.createElement('button', {
             onClick: clearAll,
             className: 'absolute right-2 top-2 text-blue-300 text-xs underline'
@@ -332,7 +332,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        const swCode = "const CACHE='epidural-v5';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE)));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));";
+        const swCode = "const CACHE='epidural-v6';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE)));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));";
         const blob = new Blob([swCode], { type: 'application/javascript' });
         navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
       });
